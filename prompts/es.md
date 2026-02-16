@@ -1,0 +1,1 @@
+Resuelve este acertijo lógico: Si todos los Bloops son Razzies y todos los Razzies son Lazzies, ¿son todos los Bloops definitivamente Lazzies? Explica tu razonamiento paso a paso.

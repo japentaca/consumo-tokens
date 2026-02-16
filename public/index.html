@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Token Benchmark - OpenRouter</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+  <style>
+    body {
+      background-color: #f8f9fa;
+    }
+
+    .model-card {
+      transition: all 0.2s;
+    }
+
+    .model-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    .model-card.selected {
+      border-color: #0d6efd;
+      background-color: #e7f1ff;
+    }
+
+    .model-price {
+      font-size: 0.75rem;
+      color: #6c757d;
+    }
+
+    .model-price .price-label {
+      font-weight: 600;
+      color: #495057;
+    }
+
+    .progress-sticky {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .table-result {
+      font-size: 0.875rem;
+    }
+
+    .table-result th {
+      position: sticky;
+      top: 0;
+      background: #fff;
+    }
+
+    .lang-badge {
+      width: 40px;
+      text-align: center;
+    }
+
+    .model-name {
+      font-weight: 500;
+      color: #495057;
+    }
+
+    .diff-positive {
+      color: #dc3545;
+    }
+
+    .diff-negative {
+      color: #198754;
+    }
+
+    .diff-neutral {
+      color: #6c757d;
+    }
+
+    .loading-spinner {
+      display: inline-block;
+      width: 1rem;
+      height: 1rem;
+      border: 2px solid #fff;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .status-running {
+      color: #0d6efd;
+    }
+
+    .status-completed {
+      color: #198754;
+    }
+
+    .status-failed {
+      color: #dc3545;
+    }
+
+    .prompt-editor textarea {
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 0.85rem;
+      resize: vertical;
+    }
+
+    .prompt-editor .char-count {
+      font-size: 0.75rem;
+    }
+
+    .prompt-editor .save-indicator {
+      font-size: 0.75rem;
+      transition: opacity 0.3s;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app">
+    <!-- Barra de progreso -->
+    <div v-if="isRunning" class="progress-sticky bg-white border-bottom py-2 px-3 shadow-sm">
+      <div class="d-flex align-items-center justify-content-between">
+        <div>
+          <span class="loading-spinner me-2"></span>
+          <strong>{{ currentStatus }}</strong>
+          <span class="text-muted ms-2">({{ completedTests }}/{{ totalTests }} tests)</span>
+        </div>
+        <div class="progress" style="width: 200px; height: 8px;">
+          <div class="progress-bar progress-bar-striped progress-bar-animated"
+            :style="{ width: progressPercent + '%' }"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="container py-4">
+      <div class="row mb-4">
+        <div class="col">
+          <h1 class="h3 mb-1">
+            <i class="bi bi-lightning-charge"></i> Token Benchmark
+          </h1>
+          <p class="text-muted mb-0">OpenRouter - Comparación de consumo de tokens por idioma</p>
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-outline-secondary btn-sm" @click="loadModels" :disabled="loadingModels">
+            <i class="bi bi-arrow-clockwise" :class="{ 'loading-spinner': loadingModels }"></i>
+            Actualizar modelos
+          </button>
+        </div>
+      </div>
+
+      <!-- Editor de Prompts -->
+      <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h5 class="mb-0">
+            <i class="bi bi-pencil-square"></i> Prompts de Prueba
+          </h5>
+          <div>
+            <button class="btn btn-sm btn-outline-secondary" @click="loadPrompts" :disabled="loadingPrompts">
+              <i class="bi bi-arrow-clockwise"></i> Recargar
+            </button>
+          </div>
+        </div>
+        <div class="card-body prompt-editor">
+          <p class="text-muted mb-3">
+            <small>
+              <i class="bi bi-info-circle"></i>
+              Edita los prompts para cada idioma. Los cambios se guardan en el servidor
+              y se usarán en el próximo benchmark. El costo estimado se actualiza automáticamente.
+            </small>
+          </p>
+          <div v-if="loadingPrompts" class="text-center py-3">
+            <div class="loading-spinner" style="width: 1.5rem; height: 1.5rem;"></div>
+            <p class="mt-2 text-muted">Cargando prompts...</p>
+          </div>
+          <div v-else class="row g-3">
+            <div v-for="p in promptsData" :key="p.lang" class="col-md-4">
+              <div class="card h-100">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                  <span>
+                    <span class="badge bg-secondary me-1">{{ p.lang.toUpperCase() }}</span>
+                    <span class="text-muted">{{ langLabel(p.lang) }}</span>
+                  </span>
+                  <span class="char-count" :class="p.dirty ? 'text-warning' : 'text-muted'">
+                    {{ p.content.length }} chars
+                    <span v-if="p.dirty" class="ms-1">
+                      <i class="bi bi-dot text-warning"></i>sin guardar
+                    </span>
+                  </span>
+                </div>
+                <div class="card-body p-2">
+                  <textarea class="form-control" rows="4" v-model="p.content" @input="p.dirty = true; p.saveStatus = ''"
+                    :disabled="isRunning" :placeholder="'Escribe el prompt en ' + langLabel(p.lang) + '...'"></textarea>
+                </div>
+                <div class="card-footer py-1 d-flex justify-content-between align-items-center">
+                  <span class="save-indicator">
+                    <span v-if="p.saving" class="text-primary">
+                      <span class="loading-spinner" style="width: 0.7rem; height: 0.7rem; border-width: 1px;"></span>
+                      Guardando...
+                    </span>
+                    <span v-else-if="p.saveStatus === 'ok'" class="text-success">
+                      <i class="bi bi-check-circle"></i> Guardado
+                    </span>
+                    <span v-else-if="p.saveStatus === 'error'" class="text-danger">
+                      <i class="bi bi-x-circle"></i> Error al guardar
+                    </span>
+                    <span v-else>&nbsp;</span>
+                  </span>
+                  <button class="btn btn-sm btn-outline-primary" @click="savePrompt(p)"
+                    :disabled="!p.dirty || p.saving || isRunning">
+                    <i class="bi bi-save"></i> Guardar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card-footer text-muted">
+          <small>
+            <i class="bi bi-file-earmark-text"></i>
+            Total: {{ totalPromptChars }} caracteres | ~{{ estimatedTotalInputTokens }} tokens estimados de input (por
+            modelo)
+          </small>
+        </div>
+      </div>
+
+      <!-- Sección de selección de modelos -->
+      <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h5 class="mb-0">
+            <i class="bi bi-robot"></i> Seleccionar Modelos
+          </h5>
+          <div>
+            <div class="btn-group btn-group-sm me-2">
+              <button class="btn" :class="source === 'free' ? 'btn-primary' : 'btn-outline-primary'"
+                @click="source = 'free'">Gratuitos</button>
+              <button class="btn" :class="source === 'paid' ? 'btn-primary' : 'btn-outline-primary'"
+                @click="source = 'paid'">Pagos</button>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary me-2" @click="selectAll">Todos</button>
+            <button class="btn btn-sm btn-outline-secondary me-2" @click="deselectAll">Ninguno</button>
+            <button class="btn btn-success" @click="startBenchmark"
+              :disabled="selectedModels.length === 0 || isRunning">
+              <i class="bi bi-play-fill"></i> Iniciar Benchmark
+            </button>
+          </div>
+        </div>
+        <!-- Filtro de búsqueda -->
+        <div v-if="currentModels.length > 10" class="px-3 pt-3">
+          <input type="text" class="form-control form-control-sm" v-model="modelSearch"
+            placeholder="Buscar modelo por nombre...">
+        </div>
+        <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+          <div v-if="loadingModels" class="text-center py-4">
+            <div class="loading-spinner" style="width: 2rem; height: 2rem;"></div>
+            <p class="mt-2 text-muted">Cargando modelos...</p>
+          </div>
+          <div v-else-if="filteredModels.length === 0 && modelSearch" class="text-center py-4 text-muted">
+            <i class="bi bi-search fs-1"></i>
+            <p>No se encontraron modelos para "{{ modelSearch }}"</p>
+          </div>
+          <div v-else-if="currentModels.length === 0" class="text-center py-4 text-muted">
+            <i class="bi bi-exclamation-circle fs-1"></i>
+            <p v-if="source === 'paid'">No hay modelos pagos disponibles</p>
+            <p v-else>No hay modelos disponibles</p>
+          </div>
+          <div v-else class="row g-2">
+            <div v-for="model in filteredModels" :key="model.id" class="col-md-6 col-lg-4">
+              <div class="card model-card p-2" :class="{ selected: selectedModels.includes(model.id) }"
+                @click="toggleModel(model.id)">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" :checked="selectedModels.includes(model.id)"
+                    @click.stop="toggleModel(model.id)">
+                  <label class="form-check-label model-name">
+                    {{ model.name }}
+                  </label>
+                </div>
+                <div v-if="model.inputPerMillion != null || model.outputPerMillion != null"
+                  class="model-price mt-1 ps-4">
+                  <span class="price-label">In:</span> {{ formatPrice(model.inputPerMillion) }}
+                  <span class="ms-2 price-label">Out:</span> {{ formatPrice(model.outputPerMillion) }}
+                  <span class="ms-1 text-muted">$/1M tok</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card-footer text-muted">
+          <small>{{ selectedModels.length }} de {{ currentModels.length }} modelos seleccionados
+            <span v-if="modelSearch"> ({{ filteredModels.length }} visibles)</span>
+          </small>
+        </div>
+      </div>
+
+      <!-- Estimación de costo -->
+      <div v-if="selectedModels.length > 0 && source === 'paid' && estimatedCost > 0" class="card mb-4 border-warning">
+        <div class="card-header bg-warning bg-opacity-10">
+          <h5 class="mb-0">
+            <i class="bi bi-calculator"></i> Costo Estimado del Benchmark
+          </h5>
+        </div>
+        <div class="card-body">
+          <p class="text-muted mb-2">
+            <small>
+              <i class="bi bi-info-circle"></i>
+              Estimación aproximada basada en la longitud de los prompts (~4 caracteres por token)
+              y max_tokens=300 de output. El costo real puede variar.
+            </small>
+          </p>
+          <div class="row">
+            <div class="col-md-4">
+              <div class="text-center">
+                <div class="fs-4 fw-bold text-warning">${{ estimatedCost.toFixed(6) }}</div>
+                <small class="text-muted">Costo total estimado</small>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="text-center">
+                <div class="fs-5 fw-bold">{{ selectedModels.length }}</div>
+                <small class="text-muted">Modelos seleccionados</small>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="text-center">
+                <div class="fs-5 fw-bold">{{ selectedModels.length * 3 }}</div>
+                <small class="text-muted">Tests totales (3 idiomas)</small>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resultados -->
+      <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h5 class="mb-0">
+            <i class="bi bi-table"></i> Resultados
+          </h5>
+          <div>
+            <select v-model="selectedRunId" class="form-select form-select-sm" style="width: auto;">
+              <option :value="null">Última ejecución</option>
+              <option v-for="run in runs" :key="run.id" :value="run.id">
+                {{ formatDate(run.started_at) }} - {{ run.model_count }} modelos
+              </option>
+            </select>
+          </div>
+        </div>
+        <div class="card-body p-0">
+          <div v-if="results.length === 0" class="text-center py-5 text-muted">
+            <i class="bi bi-inbox fs-1"></i>
+            <p>No hay resultados aún. Ejecuta un benchmark para ver los resultados.</p>
+          </div>
+          <div v-else class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+            <table class="table table-result table-hover mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>Modelo</th>
+                  <th class="lang-badge">EN</th>
+                  <th class="lang-badge">ES</th>
+                  <th class="lang-badge">ZH</th>
+                  <th>Recomendado</th>
+                  <th>Total Tests</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="modelGroup in groupedResults" :key="modelGroup.name"
+                  @click="selectResultModel(modelGroup.name)"
+                  :class="{ 'table-active': selectedModelName === modelGroup.name }" style="cursor: pointer;">
+                  <td class="model-name">{{ modelGroup.name }}</td>
+                  <td>
+                    <span v-if="modelGroup.results.en" class="badge bg-light text-dark">
+                      {{ modelGroup.results.en.total }}
+                    </span>
+                    <span v-else-if="modelGroup.errors.en" class="badge bg-danger" :title="modelGroup.errors.en">
+                      <i class="bi bi-exclamation-triangle"></i>
+                    </span>
+                    <span v-else class="text-muted">-</span>
+                  </td>
+                  <td>
+                    <span v-if="modelGroup.results.es" class="badge bg-light text-dark">
+                      {{ modelGroup.results.es.total }}
+                    </span>
+                    <span v-else-if="modelGroup.errors.es" class="badge bg-danger" :title="modelGroup.errors.es">
+                      <i class="bi bi-exclamation-triangle"></i>
+                    </span>
+                    <span v-else class="text-muted">-</span>
+                  </td>
+                  <td>
+                    <span v-if="modelGroup.results.zh" class="badge bg-light text-dark">
+                      {{ modelGroup.results.zh.total }}
+                    </span>
+                    <span v-else-if="modelGroup.errors.zh" class="badge bg-danger" :title="modelGroup.errors.zh">
+                      <i class="bi bi-exclamation-triangle"></i>
+                    </span>
+                    <span v-else class="text-muted">-</span>
+                  </td>
+                  <td>
+                    <span v-if="getRecommendedLang(modelGroup)" class="badge bg-success">
+                      <i class="bi bi-trophy"></i> {{ getRecommendedLang(modelGroup).toUpperCase() }}
+                    </span>
+                    <span v-else class="text-muted">-</span>
+                  </td>
+                  <td>{{ modelGroup.successCount }}/{{ modelGroup.totalCount }}</td>
+                  <td>
+                    <span v-if="modelGroup.isComplete" class="status-completed">
+                      <i class="bi bi-check-circle-fill"></i>
+                    </span>
+                    <span v-else class="status-running">
+                      <i class="bi bi-arrow-repeat"></i>
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recomendaciones -->
+      <div v-if="recommendations.length > 0" class="card mt-4">
+        <div class="card-header">
+          <h5 class="mb-0">
+            <i class="bi bi-trophy"></i> Recomendación de idioma por modelo
+          </h5>
+        </div>
+        <div class="card-body">
+          <p class="text-muted mb-3">
+            <small>
+              <i class="bi bi-info-circle"></i>
+              Basado en <strong>tokens totales</strong> (input + output).
+              El input refleja el coste de tokenización del prompt (definiciones de proyecto, system prompts).
+              El output varía según el idioma en modelos que razonan.
+            </small>
+          </p>
+          <div class="row g-3">
+            <div v-for="rec in recommendations" :key="rec.model" class="col-md-6 col-lg-4">
+              <div class="card h-100 border-success">
+                <div class="card-body py-2 px-3">
+                  <div class="model-name text-truncate" :title="rec.model">{{ rec.model }}</div>
+                  <div class="d-flex align-items-center mt-1">
+                    <span class="badge bg-success me-2">
+                      <i class="bi bi-trophy"></i> {{ rec.lang.toUpperCase() }}
+                    </span>
+                    <small class="text-muted">input: {{ rec.input }} | total: {{ rec.total }}</small>
+                    <span v-if="rec.savings" class="badge bg-info ms-auto">{{ rec.savings }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detalle de resultados -->
+      <div v-if="selectedModelDetails.length > 0" class="card mt-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h5 class="mb-0">
+            <i class="bi bi-bar-chart"></i>
+            {{ selectedModelName ? 'Detalle: ' + selectedModelName : 'Detalle de Todos los Modelos' }}
+          </h5>
+          <button v-if="selectedModelName" class="btn btn-sm btn-outline-secondary" @click="selectedModelName = null">
+            <i class="bi bi-x-lg"></i> Ver todos
+          </button>
+        </div>
+        <div class="card-body">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Modelo</th>
+                <th>Idioma</th>
+                <th class="text-end">Input</th>
+                <th class="text-end">Output</th>
+                <th class="text-end">Total</th>
+                <th class="text-end">Diff Input vs EN</th>
+                <th class="text-end">Diff Total vs EN</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in selectedModelDetails" :key="r.model + r.lang">
+                <td>{{ r.model }}</td>
+                <td><span class="badge bg-secondary">{{ r.lang.toUpperCase() }}</span></td>
+                <td class="text-end">{{ r.input }}</td>
+                <td class="text-end">{{ r.output }}</td>
+                <td class="text-end"><strong>{{ r.total }}</strong></td>
+                <td class="text-end" :class="getInputDiffClass(r)">
+                  {{ getInputDiff(r) }}
+                </td>
+                <td class="text-end" :class="getTotalDiffClass(r)">
+                  {{ getTotalDiff(r) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { createApp, ref, computed, onMounted, watch } = Vue;
+
+    createApp({
+      setup() {
+        const loadingModels = ref(false);
+        const freeModels = ref([]);
+        const paidModels = ref([]);
+        const selectedModels = ref([]);
+        const source = ref('free');
+        const modelSearch = ref('');
+        const promptsData = ref([]);
+        const loadingPrompts = ref(false);
+        const isRunning = ref(false);
+        const currentStatus = ref('');
+        const totalTests = ref(0);
+        const completedTests = ref(0);
+        const results = ref([]);
+        const runs = ref([]);
+        const selectedRunId = ref(null);
+        const selectedModelName = ref(null);
+        const ws = ref(null);
+
+        const currentModels = computed(() =>
+          source.value === 'free' ? freeModels.value : paidModels.value
+        );
+
+        const filteredModels = computed(() => {
+          const search = modelSearch.value.toLowerCase().trim();
+          if (!search) return currentModels.value;
+          return currentModels.value.filter(m =>
+            m.name.toLowerCase().includes(search) || m.id.toLowerCase().includes(search)
+          );
+        });
+
+        const CHARS_PER_TOKEN = 4;
+        const MAX_OUTPUT_TOKENS = 300;
+
+        const totalPromptChars = computed(() =>
+          promptsData.value.reduce((sum, p) => sum + p.content.length, 0)
+        );
+
+        const estimatedTotalInputTokens = computed(() =>
+          promptsData.value.reduce((sum, p) => sum + Math.ceil(p.content.length / CHARS_PER_TOKEN), 0)
+        );
+
+        const estimatedCost = computed(() => {
+          if (selectedModels.value.length === 0 || source.value !== 'paid' || promptsData.value.length === 0) return 0;
+          let total = 0;
+          for (const modelId of selectedModels.value) {
+            const model = paidModels.value.find(m => m.id === modelId);
+            if (!model) continue;
+            const inputPrice = model.inputPerMillion || 0;
+            const outputPrice = model.outputPerMillion || 0;
+            for (const p of promptsData.value) {
+              const estimatedInputTokens = Math.ceil(p.content.length / CHARS_PER_TOKEN);
+              const costInput = (estimatedInputTokens / 1_000_000) * inputPrice;
+              const costOutput = (MAX_OUTPUT_TOKENS / 1_000_000) * outputPrice;
+              total += costInput + costOutput;
+            }
+          }
+          return total;
+        });
+
+        const progressPercent = computed(() =>
+          totalTests.value > 0 ? Math.round((completedTests.value / totalTests.value) * 100) : 0
+        );
+
+        const groupedResults = computed(() => {
+          const groups = {};
+          results.value.forEach(r => {
+            if (!groups[r.model]) {
+              groups[r.model] = { name: r.model, results: {}, errors: {}, successCount: 0, totalCount: 0 };
+            }
+            if (r.error) {
+              groups[r.model].errors[r.lang] = r.error;
+            } else {
+              groups[r.model].results[r.lang] = r;
+              groups[r.model].successCount++;
+            }
+            groups[r.model].totalCount++;
+          });
+          return Object.values(groups).sort((a, b) => a.name.localeCompare(b.name));
+        });
+
+        const selectedModelDetails = computed(() => {
+          if (groupedResults.value.length === 0) return [];
+          if (selectedModelName.value) {
+            const model = groupedResults.value.find(g => g.name === selectedModelName.value);
+            return model ? Object.values(model.results) : [];
+          }
+          // Mostrar todos los modelos
+          const allDetails = [];
+          groupedResults.value.forEach(g => {
+            Object.values(g.results).forEach(r => allDetails.push(r));
+          });
+          return allDetails;
+        });
+
+        function selectResultModel(name) {
+          selectedModelName.value = selectedModelName.value === name ? null : name;
+        }
+
+        function getInputDiff(r) {
+          if (r.lang === 'en') return '-';
+          const en = groupedResults.value.find(g => g.name === r.model)?.results?.en;
+          if (!en || !en.input) return '-';
+          const diff = ((r.input - en.input) / en.input) * 100;
+          const sign = diff > 0 ? '+' : '';
+          return `${sign}${diff.toFixed(1)}%`;
+        }
+
+        function getInputDiffClass(r) {
+          if (r.lang === 'en') return 'diff-neutral';
+          const en = groupedResults.value.find(g => g.name === r.model)?.results?.en;
+          if (!en || !en.input) return 'diff-neutral';
+          const diff = ((r.input - en.input) / en.input) * 100;
+          if (diff > 5) return 'diff-positive';
+          if (diff < -5) return 'diff-negative';
+          return 'diff-neutral';
+        }
+
+        function getTotalDiff(r) {
+          if (r.lang === 'en') return '-';
+          const en = groupedResults.value.find(g => g.name === r.model)?.results?.en;
+          if (!en || !en.total) return '-';
+          const diff = ((r.total - en.total) / en.total) * 100;
+          const sign = diff > 0 ? '+' : '';
+          return `${sign}${diff.toFixed(1)}%`;
+        }
+
+        function getTotalDiffClass(r) {
+          if (r.lang === 'en') return 'diff-neutral';
+          const en = groupedResults.value.find(g => g.name === r.model)?.results?.en;
+          if (!en || !en.total) return 'diff-neutral';
+          const diff = ((r.total - en.total) / en.total) * 100;
+          if (diff > 10) return 'diff-positive';
+          if (diff < -10) return 'diff-negative';
+          return 'diff-neutral';
+        }
+
+        function getRecommendedLang(modelGroup) {
+          const results = modelGroup.results;
+          const langs = Object.keys(results).filter(lang => results[lang] && results[lang].total > 0);
+          if (langs.length === 0) return null;
+          return langs.reduce((best, lang) =>
+            results[lang].total < results[best].total ? lang : best
+          );
+        }
+
+        const recommendations = computed(() => {
+          return groupedResults.value
+            .map(g => {
+              const bestLang = getRecommendedLang(g);
+              if (!bestLang) return null;
+              const best = g.results[bestLang];
+              // Calcular ahorro vs el peor idioma
+              const langs = Object.keys(g.results).filter(l => g.results[l] && g.results[l].total > 0);
+              const worstTotal = Math.max(...langs.map(l => g.results[l].total));
+              let savings = null;
+              if (worstTotal > best.total && best.total > 0) {
+                const pct = ((worstTotal - best.total) / worstTotal) * 100;
+                savings = `-${pct.toFixed(0)}% vs peor`;
+              }
+              return { model: g.name, lang: bestLang, input: best.input, total: best.total, savings };
+            })
+            .filter(Boolean);
+        });
+
+        function formatDate(dateStr) {
+          return new Date(dateStr).toLocaleString('es-ES', {
+            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+          });
+        }
+
+        function formatPrice(value) {
+          if (value === null || value === undefined) return '-';
+          return '$' + value.toFixed(4);
+        }
+
+        async function loadModels() {
+          loadingModels.value = true;
+          try {
+            const res = await fetch('/api/models');
+            const data = await res.json();
+            freeModels.value = data.free || [];
+            paidModels.value = data.paid || [];
+          } catch (e) {
+            console.error('Error cargando modelos:', e);
+          } finally {
+            loadingModels.value = false;
+          }
+        }
+
+        function langLabel(lang) {
+          const labels = { en: 'English', es: 'Español', zh: '中文' };
+          return labels[lang] || lang;
+        }
+
+        async function loadPrompts() {
+          loadingPrompts.value = true;
+          try {
+            const res = await fetch('/api/prompts');
+            const data = await res.json();
+            promptsData.value = (data.prompts || []).map(p => ({
+              lang: p.lang,
+              content: p.content,
+              dirty: false,
+              saving: false,
+              saveStatus: ''
+            }));
+          } catch (e) {
+            console.error('Error cargando prompts:', e);
+          } finally {
+            loadingPrompts.value = false;
+          }
+        }
+
+        async function savePrompt(prompt) {
+          prompt.saving = true;
+          prompt.saveStatus = '';
+          try {
+            const res = await fetch(`/api/prompts/${prompt.lang}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content: prompt.content })
+            });
+            const data = await res.json();
+            if (data.success) {
+              prompt.dirty = false;
+              prompt.saveStatus = 'ok';
+              setTimeout(() => { prompt.saveStatus = ''; }, 3000);
+            } else {
+              prompt.saveStatus = 'error';
+            }
+          } catch (e) {
+            console.error('Error guardando prompt:', e);
+            prompt.saveStatus = 'error';
+          } finally {
+            prompt.saving = false;
+          }
+        }
+
+        async function loadResults() {
+          try {
+            const url = selectedRunId.value
+              ? `/api/results/${selectedRunId.value}`
+              : '/api/results';
+            const res = await fetch(url);
+            const data = await res.json();
+            results.value = data.results || [];
+            if (!selectedRunId.value) {
+              runs.value = data.runs || [];
+            }
+          } catch (e) {
+            console.error('Error cargando resultados:', e);
+          }
+        }
+
+        function toggleModel(id) {
+          const idx = selectedModels.value.indexOf(id);
+          if (idx === -1) {
+            selectedModels.value.push(id);
+          } else {
+            selectedModels.value.splice(idx, 1);
+          }
+        }
+
+        function selectAll() {
+          selectedModels.value = currentModels.value.map(m => m.id);
+        }
+
+        function deselectAll() {
+          selectedModels.value = [];
+        }
+
+        async function startBenchmark() {
+          if (selectedModels.value.length === 0) return;
+
+          try {
+            const res = await fetch('/api/benchmark/start', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                modelIds: selectedModels.value,
+                source: source.value
+              })
+            });
+            const data = await res.json();
+            if (data.success) {
+              isRunning.value = true;
+              currentStatus.value = 'Iniciando benchmark...';
+              completedTests.value = 0;
+              totalTests.value = 0;
+              results.value = [];
+            } else {
+              console.error('Error del servidor:', data.error);
+              alert('Error: ' + (data.error || 'No se pudo iniciar el benchmark'));
+            }
+          } catch (e) {
+            console.error('Error iniciando benchmark:', e);
+          }
+        }
+
+        function connectWebSocket() {
+          const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          ws.value = new WebSocket(`${protocol}//${window.location.host}`);
+
+          ws.value.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.type === 'start') {
+              totalTests.value = data.totalTests;
+              currentStatus.value = `Ejecutando ${data.models} modelos...`;
+            } else if (data.type === 'modelStart') {
+              currentStatus.value = `Modelo: ${data.model} (${data.modelIndex + 1}/${data.totalModels})`;
+            } else if (data.type === 'result') {
+              completedTests.value = data.progress;
+              results.value.push({
+                model: data.model,
+                lang: data.lang,
+                input: data.input,
+                output: data.output,
+                total: data.total
+              });
+            } else if (data.type === 'error') {
+              completedTests.value = data.progress;
+              results.value.push({
+                model: data.model,
+                lang: data.lang,
+                error: data.error
+              });
+            } else if (data.type === 'complete') {
+              isRunning.value = false;
+              currentStatus.value = 'Completado!';
+              loadResults();
+            } else if (data.type === 'fatalError') {
+              isRunning.value = false;
+              currentStatus.value = 'Error: ' + data.error;
+            }
+          };
+
+          ws.value.onclose = () => {
+            setTimeout(connectWebSocket, 3000);
+          };
+        }
+
+        watch(source, () => {
+          selectedModels.value = [];
+          modelSearch.value = '';
+        });
+
+        watch(selectedRunId, () => {
+          loadResults();
+        });
+
+        onMounted(() => {
+          loadModels();
+          loadResults();
+          loadPrompts();
+          connectWebSocket();
+        });
+
+        return {
+          loadingModels,
+          freeModels,
+          paidModels,
+          selectedModels,
+          source,
+          modelSearch,
+          currentModels,
+          filteredModels,
+          estimatedCost,
+          promptsData,
+          loadingPrompts,
+          totalPromptChars,
+          estimatedTotalInputTokens,
+          isRunning,
+          currentStatus,
+          totalTests,
+          completedTests,
+          progressPercent,
+          results,
+          runs,
+          selectedRunId,
+          selectedModelName,
+          groupedResults,
+          selectedModelDetails,
+          selectResultModel,
+          getInputDiff,
+          getInputDiffClass,
+          getTotalDiff,
+          getTotalDiffClass,
+          getRecommendedLang,
+          recommendations,
+          formatDate,
+          formatPrice,
+          langLabel,
+          loadModels,
+          loadPrompts,
+          savePrompt,
+          toggleModel,
+          selectAll,
+          deselectAll,
+          startBenchmark
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+
+</html>
