@@ -13,7 +13,9 @@ db.exec(`
     finished_at TEXT,
     status TEXT DEFAULT 'running',
     model_count INTEGER DEFAULT 0,
-    source TEXT DEFAULT 'free'
+    source TEXT DEFAULT 'free',
+    max_tokens INTEGER DEFAULT 300,
+    temperature REAL DEFAULT 0.1
   );
 
   CREATE TABLE IF NOT EXISTS results (
@@ -24,6 +26,7 @@ db.exec(`
     input INTEGER DEFAULT 0,
     output INTEGER DEFAULT 0,
     total INTEGER DEFAULT 0,
+    prompt_text TEXT,
     error TEXT,
     created_at TEXT NOT NULL,
     FOREIGN KEY (run_id) REFERENCES runs(id)
@@ -32,12 +35,17 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_results_run_id ON results(run_id);
 `);
 
-function createRun(source, modelCount) {
+try { db.exec(`ALTER TABLE runs ADD COLUMN max_tokens INTEGER DEFAULT 300;`); } catch (err) {}
+try { db.exec(`ALTER TABLE runs ADD COLUMN temperature REAL DEFAULT 0.1;`); } catch (err) {}
+try { db.exec(`ALTER TABLE results ADD COLUMN prompt_text TEXT;`); } catch (err) {}
+
+
+function createRun(source, modelCount, maxTokens = 300, temperature = 0.1) {
   const stmt = db.prepare(`
-    INSERT INTO runs (started_at, model_count, source)
-    VALUES (datetime('now'), ?, ?)
+    INSERT INTO runs (started_at, model_count, source, max_tokens, temperature)
+    VALUES (datetime('now'), ?, ?, ?, ?)
   `);
-  const result = stmt.run(modelCount, source);
+  const result = stmt.run(modelCount, source, maxTokens, temperature);
   return result.lastInsertRowid;
 }
 
@@ -52,10 +60,10 @@ function finishRun(runId, status) {
 
 function saveResult(runId, data) {
   const stmt = db.prepare(`
-    INSERT INTO results (run_id, model, lang, input, output, total, error, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO results (run_id, model, lang, input, output, total, error, prompt_text, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `);
-  return stmt.run(runId, data.model, data.lang, data.input || 0, data.output || 0, data.total || 0, data.error || null);
+  return stmt.run(runId, data.model, data.lang, data.input || 0, data.output || 0, data.total || 0, data.error || null, data.prompt_text || null);
 }
 
 function getAllResults() {

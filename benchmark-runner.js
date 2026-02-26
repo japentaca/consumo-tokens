@@ -109,7 +109,7 @@ function selectPaidModelsFromWhitelist(modelsCatalog, whitelist) {
   });
 }
 
-async function callOpenRouter(modelId, prompt) {
+async function callOpenRouter(modelId, prompt, maxTokens = 300, temperature = 0.1) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -126,8 +126,8 @@ async function callOpenRouter(modelId, prompt) {
       body: JSON.stringify({
         model: modelId,
         messages: [{ role: "user", content: prompt }],
-        max_tokens: 300,
-        temperature: 0.1
+        max_tokens: maxTokens,
+        temperature: temperature
       })
     });
 
@@ -170,7 +170,9 @@ class BenchmarkRunner {
 
       this.testCases = await loadTestCasesFromMarkdown();
       this.totalTests = this.models.length * this.testCases.length;
-      this.runId = createRun(this.source, this.models.length);
+      const maxTokens = 300;
+      const temperature = 0.1;
+      this.runId = createRun(this.source, this.models.length, maxTokens, temperature);
 
       console.log(`📊 Run #${this.runId} creado - ${this.totalTests} tests totales`);
 
@@ -204,14 +206,15 @@ class BenchmarkRunner {
 
           try {
             await sleep(INVOCATION_DELAY_MS);
-            const usage = await callOpenRouter(model.id, testCase.prompt);
+            const usage = await callOpenRouter(model.id, testCase.prompt, maxTokens, temperature);
 
             const resultData = {
               model: model.name,
               lang: testCase.lang,
               input: usage.input,
               output: usage.output,
-              total: usage.total
+              total: usage.total,
+              prompt_text: testCase.prompt
             };
 
             saveResult(this.runId, resultData);
@@ -229,6 +232,7 @@ class BenchmarkRunner {
             saveResult(this.runId, {
               model: model.name,
               lang: testCase.lang,
+              prompt_text: testCase.prompt,
               error: error.message
             });
 

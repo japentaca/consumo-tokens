@@ -340,13 +340,20 @@
           <h5 class="mb-0">
             <i class="bi bi-table"></i> Resultados
           </h5>
-          <div>
+          <div class="d-flex align-items-center gap-2">
+            <div v-if="selectedRunDetails" class="d-none d-md-block" style="font-size: 0.8rem; color: #6c757d;">
+              <span class="me-2"><i class="bi bi-gear"></i> max_tokens: {{ selectedRunDetails.max_tokens || 300 }}</span>
+              <span><i class="bi bi-thermometer-half"></i> temp: {{ selectedRunDetails.temperature || 0.1 }}</span>
+            </div>
             <select v-model="selectedRunId" class="form-select form-select-sm" style="width: auto;">
               <option :value="null">Última ejecución</option>
               <option v-for="run in runs" :key="run.id" :value="run.id">
                 {{ formatDate(run.started_at) }} - {{ run.model_count }} modelos
               </option>
             </select>
+            <button class="btn btn-sm btn-primary d-flex align-items-center gap-1" @click="exportToHTML" :disabled="results.length === 0">
+              <i class="bi bi-filetype-html"></i> Exportar
+            </button>
           </div>
         </div>
         <div class="card-body p-0">
@@ -600,6 +607,15 @@
           return allDetails;
         });
 
+        const selectedRunDetails = computed(() => {
+          if (runs.value.length === 0) return null;
+          if (selectedRunId.value) {
+            return runs.value.find(r => r.id === selectedRunId.value);
+          }
+          // Si null (última ejecución), tomar el primer run de la lista (ordenados de más nuevo a viejo por backend)
+          return runs.value[0];
+        });
+
         function selectResultModel(name) {
           selectedModelName.value = selectedModelName.value === name ? null : name;
         }
@@ -848,6 +864,236 @@
           };
         }
 
+        function exportToHTML() {
+          if (results.value.length === 0) return;
+
+          const runInfo = selectedRunDetails.value;
+          const title = runInfo ? \`Benchmark Run #\${runInfo.id} - \${formatDate(runInfo.started_at)}\` : 'Token Benchmark Results';
+
+          let rowsHtml = '';
+          for (const g of groupedResults.value) {
+            rowsHtml += \`
+              <tr>
+                <td><strong>\${g.name}</strong></td>
+                <td>\${g.results.en ? g.results.en.total : (g.errors.en ? '<span class="error" title="'+g.errors.en+'">Error</span>' : '-')}</td>
+                <td>\${g.results.es ? g.results.es.total : (g.errors.es ? '<span class="error" title="'+g.errors.es+'">Error</span>' : '-')}</td>
+                <td>\${g.results.zh ? g.results.zh.total : (g.errors.zh ? '<span class="error" title="'+g.errors.zh+'">Error</span>' : '-')}</td>
+                <td><span class="badge">\${(getRecommendedLang(g) || '-').toUpperCase()}</span></td>
+              </tr>
+            \`;
+          }
+
+          const promptsByLang = {};
+          results.value.forEach(r => {
+            if (r.prompt_text && !promptsByLang[r.lang]) {
+              promptsByLang[r.lang] = r.prompt_text;
+            }
+          });
+
+          let promptsHtml = '';
+          for (const [lang, text] of Object.entries(promptsByLang).sort()) {
+            promptsHtml += \`
+              <div class="prompt-box">
+                <h4>Prompt: \${lang.toUpperCase()}</h4>
+                <pre>\${text}</pre>
+              </div>
+            \`;
+          }
+
+          const htmlContent = \`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>\${title}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-dark: #4338ca;
+      --bg: #f3f4f6;
+      --text: #1f2937;
+      --text-muted: #6b7280;
+      --border: #e5e7eb;
+      --success: #10b981;
+      --error: #ef4444;
+      --card-bg: #ffffff;
+    }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 0;
+      margin: 0;
+    }
+    .wrapper {
+      max-width: 1000px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .header h1 {
+      margin: 0 0 0.5rem 0;
+      color: var(--primary);
+      font-size: 2.25rem;
+      font-weight: 700;
+    }
+    .meta-data {
+      display: flex;
+      justify-content: center;
+      gap: 1.5rem;
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+    .meta-data strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+      padding: 2rem;
+      margin-bottom: 2rem;
+    }
+    .card h2 {
+      margin-top: 0;
+      margin-bottom: 1.5rem;
+      font-size: 1.5rem;
+      color: var(--text);
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 0.75rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+    }
+    th, td {
+      padding: 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      background-color: #f9fafb;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-size: 0.8rem;
+      letter-spacing: 0.05em;
+    }
+    tbody tr:hover {
+      background-color: #f9fafb;
+    }
+    td strong {
+      font-weight: 600;
+    }
+    .badge {
+      background: #ecfdf5;
+      color: var(--success);
+      padding: 0.35rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      display: inline-block;
+      border: 1px solid #d1fae5;
+    }
+    .error {
+      color: var(--error);
+      font-weight: 600;
+      cursor: help;
+    }
+    .prompt-box {
+      background: #111827;
+      color: #f9fafb;
+      padding: 1.5rem;
+      border-radius: 8px;
+      margin-bottom: 1.5rem;
+    }
+    .prompt-box h4 {
+      margin: 0 0 1rem 0;
+      color: #9ca3af;
+      border-bottom: 1px solid #374151;
+      padding-bottom: 0.75rem;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      font-family: 'Fira Code', monospace;
+      font-size: 0.85rem;
+      line-height: 1.6;
+      color: #e5e7eb;
+    }
+    .footer {
+      text-align: center;
+      margin-top: 3rem;
+      color: var(--text-muted);
+      font-size: 0.875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="header">
+      <h1>\${runInfo ? \`Run #\${runInfo.id}\` : 'Benchmark Results'}</h1>
+      <div class="meta-data">
+        <span><strong>Fecha:</strong> \${runInfo ? formatDate(runInfo.started_at) : '-'}</span>
+        <span><strong>Modelos:</strong> \${runInfo ? runInfo.model_count : '-'}</span>
+        <span><strong>Max Tokens:</strong> \${runInfo?.max_tokens || 300}</span>
+        <span><strong>Temperatura:</strong> \${runInfo?.temperature || 0.1}</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Resumen de Resultados</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Modelo</th>
+            <th>Total Tokens (EN)</th>
+            <th>Total Tokens (ES)</th>
+            <th>Total Tokens (ZH)</th>
+            <th>Recomendado</th>
+          </tr>
+        </thead>
+        <tbody>
+          \${rowsHtml}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Parámetros y Prompts Utilizados</h2>
+      \${promptsHtml || '<p style="color: #6b7280; font-style: italic;">No se registraron los textos de los prompts en esta ejecución.</p>'}
+    </div>
+    
+    <div class="footer">
+      Generado por Token Benchmark • \${new Date().toLocaleString('es-ES')}
+    </div>
+  </div>
+</body>
+</html>\`;
+
+          const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = \`benchmark_run_\${runInfo ? runInfo.id : 'export'}.html\`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        }
+
         watch(source, () => {
           selectedModels.value = [];
           modelSearch.value = '';
@@ -888,6 +1134,7 @@
           selectedRunId,
           selectedModelName,
           groupedResults,
+          selectedRunDetails,
           selectedModelDetails,
           selectResultModel,
           getInputDiff,
@@ -905,7 +1152,8 @@
           toggleModel,
           selectAll,
           deselectAll,
-          startBenchmark
+          startBenchmark,
+          exportToHTML
         };
       }
     }).mount('#app');
