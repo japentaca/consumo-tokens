@@ -5,7 +5,7 @@ Script en Node.js para medir y comparar consumo de tokens por idioma (EN, ES, ZH
 - modelos gratuitos disponibles (`:free`), o
 - una whitelist de modelos pagos definida en `.env`.
 
-También incluye una **interfaz web** para ejecutar benchmarks visualmente.
+Ofrece una **interfaz web** para ejecutar benchmarks visualmente y consultar la lista de modelos.
 
 ## Interfaz Web
 
@@ -79,86 +79,24 @@ TARGET_PROVIDER_TAGS=openai,anthropic,gemini,deepseek,qwen,minimax
 
 ## Uso
 
-### 1) Benchmark de consumo de tokens
-
-```bash
-npm run benchmark
-```
-
-También puedes ejecutar:
-
-```bash
-node index.js
-```
-
-Seleccionando fuente explícitamente por argumento:
-
-```bash
-node index.js --model-source=free
-node index.js --model-source=paid
-```
-
-También se aceptan atajos:
-
-```bash
-node index.js --free
-node index.js --paid
-```
-
-Con script npm para pagos:
-
-```bash
-npm run benchmark:paid
-```
-
-### 2) Listar modelos gratuitos disponibles
-
-```bash
-npm run list:free-models
-```
-
-O directamente:
-
-```bash
-node list-free-models.js
-```
-
-### 3) Listar modelos pagos ordenados por precio
-
-```bash
-npm run list:paid-models
-```
-
-O directamente:
-
-```bash
-node list-paid-models.js
-```
-
-Este listado ordena de menor a mayor precio estimado por millón de tokens (`$/1M`) usando el promedio entre input y output cuando ambos existen.
-Además, guarda/reescribe automáticamente `paid-models.md` con la tabla completa.
-
-## Flujo de benchmark
-
-1. Carga prompts desde la carpeta `prompts/`.
-2. Obtiene catálogo de modelos desde la API de OpenRouter.
-3. Elige fuente según `--model-source` / `MODEL_SOURCE`:
-  - `free`: usa `:free` y filtros (`TARGET_PROVIDER_TAGS`, `PREFERRED_FREE_MODELS`).
-  - `paid`: usa `PAID_MODELS_WHITELIST`.
-4. Aplica blacklist y límite (`BLACKLIST_FREE_MODELS`, `MAX_MODELS`).
-5. Ejecuta llamadas con una pausa entre invocaciones.
-6. Imprime tablas por modelo con comparación por idioma.
-7. Sobrescribe el archivo `benchmark-results.md` con el resumen de la corrida.
+1. Copia `.env.example` a `.env` y añade tu clave de OpenRouter
+2. Ejecuta `npm start`
+3. Navega a `http://localhost:3050`
+4. Selecciona la fuente de modelos (gratuitos o pagos)
+5. Ejecuta las pruebas visualizando el progreso en tiempo real
 
 ## Estructura del proyecto
 
 ```text
 .
 ├─ index.js
-├─ list-free-models.js
+├─ benchmark-runner.js
+├─ database.js
 ├─ package.json
 ├─ .gitignore
 ├─ README.md
+├─ public/
+│  └─ ... (archivos de frontend)
 └─ prompts/
    ├─ en.md
    ├─ es.md
@@ -169,8 +107,5 @@ Además, guarda/reescribe automáticamente `paid-models.md` con la tabla complet
 
 - Si falta `OPENROUTER_API_KEY`, los scripts fallan con error explícito.
 - La disponibilidad de modelos `:free` cambia con el tiempo según OpenRouter.
-- Los prompts se leen como Markdown en texto plano.
-- Si un modelo devuelve errores definitivos de endpoint no disponible (por ejemplo, `No endpoints found`), se agrega automáticamente a `.model-blacklist.json`.
-- Si un modelo acumula errores `402` repetidos, también puede entrar automáticamente en blacklist según `AUTO_BLACKLIST_402_AFTER`.
-- Puedes limpiar esa blacklist borrando el archivo `.model-blacklist.json`.
-- El reporte en Markdown se guarda en `benchmark-results.md` y se sobreescribe en cada ejecución completa.
+- Los prompts se leen desde la base de datos o desde la carpeta `prompts/`.
+- Todos los resultados y persistencia de pruebas se gestionan exclusivamente en la base de datos SQLite y se exponen mediante la interfaz web.

@@ -4,11 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node server.js",
-    "benchmark": "node index.js",
-    "benchmark:paid": "node index.js --model-source=paid",
-    "list:free-models": "node list-free-models.js",
-    "list:paid-models": "node list-paid-models.js",
+    "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
